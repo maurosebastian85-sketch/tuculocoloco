@@ -1,6 +1,6 @@
 import { DungeonRoom, TileType, Position, Monster, Item } from './types';
 import { 
-  SKELETON_SPRITE, DEMON_SPRITE, GHOST_SPRITE, BAT_SPRITE,
+  SKELETON_1, DEMON_1, WRAITH_1, BAT_1,
   PALETTES 
 } from './sprites';
 
@@ -90,7 +90,7 @@ function createMonster(level: number, pos: Position): Monster {
     {
       id: 'skeleton',
       name: 'Skeleton',
-      sprite: SKELETON_SPRITE,
+      sprite: SKELETON_1,
       color: '#cccccc',
       baseHp: 15,
       baseAtk: 3,
@@ -101,7 +101,7 @@ function createMonster(level: number, pos: Position): Monster {
     {
       id: 'bat',
       name: 'Cave Bat',
-      sprite: BAT_SPRITE,
+      sprite: BAT_1,
       color: '#8844aa',
       baseHp: 8,
       baseAtk: 2,
@@ -112,7 +112,7 @@ function createMonster(level: number, pos: Position): Monster {
     {
       id: 'demon',
       name: 'Lesser Demon',
-      sprite: DEMON_SPRITE,
+      sprite: DEMON_1,
       color: '#cc3030',
       baseHp: 30,
       baseAtk: 6,
@@ -123,7 +123,7 @@ function createMonster(level: number, pos: Position): Monster {
     {
       id: 'wraith',
       name: 'Wraith',
-      sprite: GHOST_SPRITE,
+      sprite: WRAITH_1,
       color: '#6a6aaa',
       baseHp: 20,
       baseAtk: 5,
