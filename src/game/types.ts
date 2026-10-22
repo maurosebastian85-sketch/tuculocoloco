@@ -100,6 +100,7 @@ export interface Skill {
   cooldown: number;
   lastUsed: number;
   unlocked: boolean;
+  level: number;
   sprite: number[][];
 }
 
@@ -120,4 +121,6 @@ export interface Player {
   gold: number;
   skills: Skill[];
   attackMode: 'melee' | 'ranged';
+  fatigue: number; // 0-100, reduces basic attack damage
+  lastAttackTime: number;
 }

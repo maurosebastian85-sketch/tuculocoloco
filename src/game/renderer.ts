@@ -159,7 +159,7 @@ export class Renderer {
     ctx.fillStyle = '#666666';
     ctx.font = '11px monospace';
     ctx.fillText('WASD/Flechas: Mover | Espacio: Atacar | Tab: Cambiar Modo', canvas.width / 2, canvas.height - 80);
-    ctx.fillText('F/Q/E/R: Habilidades | I: Inventario | Enter: Bajar Escaleras', canvas.width / 2, canvas.height - 60);
+    ctx.fillText('F/Q/E/R: Habilidades | G: Fusionar | I: Inventario | Enter: Escaleras', canvas.width / 2, canvas.height - 60);
 
     // Decorative pixel art - animated characters on menu
     const menuFrame = Math.floor(time * 2) % 2;
@@ -733,8 +733,16 @@ export class Renderer {
     ctx.ellipse(px + tileSize / 2, py + tileSize - 1, tileSize / 3, tileSize / 8, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    // Draw player with armor palette
-    this.drawPixelSprite(ctx, px, py, sprite, PALETTES.heroArmor, scale);
+    // Draw player with custom palette (hair + skin)
+    // Palette mapping: 1=hair dark, 2=hair mid, 3=skin, 4=skin light, 5=hair highlight
+    const playerPalette = [
+      '#1a0f0a',  // 1: hair dark
+      '#2a1f1a',  // 2: hair mid  
+      '#d4a57a',  // 3: skin
+      '#e8c4a0',  // 4: skin light
+      '#3a2a1f',  // 5: hair highlight
+    ];
+    this.drawPixelSprite(ctx, px, py, sprite, playerPalette, scale);
     
     ctx.globalAlpha = 1;
 
@@ -1003,6 +1011,26 @@ export class Renderer {
     ctx.font = '8px monospace';
     ctx.fillText('Tab: cambiar', modeX, panelY + 62);
 
+    // Fatigue bar
+    const fatigueBarX = barX;
+    const fatigueBarY = panelY + 68;
+    const fatigueBarWidth = 80;
+    const fatigueBarHeight = 8;
+    
+    ctx.fillStyle = '#333333';
+    ctx.fillRect(fatigueBarX, fatigueBarY, fatigueBarWidth, fatigueBarHeight);
+    
+    const fatigueColor = player.fatigue > 70 ? '#ff4400' : player.fatigue > 40 ? '#ffaa00' : '#44aa44';
+    ctx.fillStyle = fatigueColor;
+    ctx.fillRect(fatigueBarX, fatigueBarY, fatigueBarWidth * (player.fatigue / 100), fatigueBarHeight);
+    
+    ctx.strokeStyle = '#555555';
+    ctx.strokeRect(fatigueBarX, fatigueBarY, fatigueBarWidth, fatigueBarHeight);
+    
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '7px monospace';
+    ctx.fillText(`FATIGA: ${Math.floor(player.fatigue)}%`, fatigueBarX + 2, fatigueBarY + 6);
+
     // Skills bar (bottom right of HUD)
     const skillBarX = canvas.width - 200;
     const skillBarY = panelY + 8;
@@ -1050,6 +1078,13 @@ export class Renderer {
         ctx.font = 'bold 9px monospace';
         ctx.textAlign = 'left';
         ctx.fillText(skillKeys[i], sx + 2, sy + 10);
+        
+        // Skill level
+        if (skill.level > 1) {
+          ctx.fillStyle = '#ffff00';
+          ctx.font = 'bold 8px monospace';
+          ctx.fillText(`Lv${skill.level}`, sx + boxSize - 18, sy + 10);
+        }
         
         // Mana cost
         ctx.fillStyle = '#4488ff';

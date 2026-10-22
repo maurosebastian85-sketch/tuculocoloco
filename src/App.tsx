@@ -142,6 +142,12 @@ function App() {
           engine.useSkill(3); // Fourth skill
           triggerUpdate();
           break;
+        case 'g':
+        case 'G':
+          e.preventDefault();
+          engine.fuseSkills();
+          triggerUpdate();
+          break;
         case 'Tab':
           e.preventDefault();
           engine.toggleAttackMode();
@@ -286,7 +292,20 @@ function App() {
 
             {/* Skills */}
             <div className="mb-4 p-3 bg-[#111122] rounded border border-[#222244]">
-              <h3 className="text-sm font-bold text-[#aaaaaa] font-mono mb-2">HABILIDADES</h3>
+              <div className="flex justify-between items-center mb-2">
+                <h3 className="text-sm font-bold text-[#aaaaaa] font-mono">HABILIDADES</h3>
+                <button
+                  onClick={() => {
+                    if (engineRef.current) {
+                      engineRef.current.fuseSkills();
+                      triggerUpdate();
+                    }
+                  }}
+                  className="text-xs font-mono text-[#ff8844] bg-[#221100] px-2 py-1 rounded hover:bg-[#332200] border border-[#443300]"
+                >
+                  [G] Fusionar
+                </button>
+              </div>
               {player?.skills.length === 0 ? (
                 <p className="text-[#444444] text-xs font-mono">No tienes habilidades. Encuentra pergaminos para aprender.</p>
               ) : (
@@ -314,6 +333,11 @@ function App() {
                             <span className={`text-xs font-mono font-bold ${skill.unlocked ? 'text-[#cccccc]' : 'text-[#444444]'}`}>
                               {skill.name}
                             </span>
+                            {skill.unlocked && skill.level > 1 && (
+                              <span className="text-xs font-mono text-[#ffff00] ml-1">
+                                [Nv.{skill.level}]
+                              </span>
+                            )}
                             <span className="text-xs font-mono text-[#666688] ml-2">
                               ({skill.manaCost} MP)
                             </span>

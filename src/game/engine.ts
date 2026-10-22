@@ -60,6 +60,8 @@ export class GameEngine {
       gold: 0,
       skills: [],
       attackMode: 'melee',
+      fatigue: 0,
+      lastAttackTime: 0,
     };
   }
 
@@ -326,14 +328,59 @@ export class GameEngine {
     // Check if already learned
     const existing = this.player.skills.find(s => s.id === skill.id);
     if (existing) {
+      // Level up the skill
+      existing.level++;
       existing.unlocked = true;
-      this.addMessage(`¡Habilidad renovada: ${skill.name}!`, '#ffdd44');
+      
+      // Increase damage/healing based on level
+      if (existing.damage) {
+        if (existing.damage < 0) {
+          // Healing skill - increase healing
+          existing.damage -= 10;
+        } else {
+          // Damage skill - increase damage
+          existing.damage += 5;
+        }
+      }
+      
+      // Reduce cooldown slightly
+      existing.cooldown = Math.max(500, existing.cooldown - 100);
+      
+      this.addMessage(`¡${skill.name} subió al nivel ${existing.level}!`, '#ffdd44');
+      this.addMessage(`  Daño/Curación aumentado, enfriamiento reducido.`, '#aaaaaa');
     } else {
-      this.player.skills.push({ ...skill, unlocked: true, lastUsed: 0 });
+      this.player.skills.push({ ...skill, unlocked: true, lastUsed: 0, level: 1 });
       this.addMessage(`¡Nueva habilidad: ${skill.name}!`, '#ffdd44');
       this.addMessage(`  "${skill.description}"`, '#aaaaaa');
     }
     this.spawnParticles(this.player.pos.x, this.player.pos.y, '#ffdd44', 20);
+  }
+
+  fuseSkills(): void {
+    // Fuse two skills of the same type to create a stronger version
+    const fireSkills = this.player.skills.filter(s => s.type === 'fire' && s.unlocked && s.level >= 2);
+    const iceSkills = this.player.skills.filter(s => s.type === 'ice' && s.unlocked && s.level >= 2);
+    
+    if (fireSkills.length >= 2) {
+      // Fuse fire skills into a more powerful one
+      const baseSkill = fireSkills[0];
+      baseSkill.damage = (baseSkill.damage || 0) + 15;
+      baseSkill.name = `${baseSkill.name} Mejorado`;
+      baseSkill.description = 'Versión potenciada con mayor daño';
+      this.addMessage(`¡Fusión de fuego! ${baseSkill.name} es más poderosa.`, '#ff4400');
+      this.spawnParticles(this.player.pos.x, this.player.pos.y, '#ff4400', 25);
+    } else if (iceSkills.length >= 2) {
+      // Fuse ice skills
+      const baseSkill = iceSkills[0];
+      baseSkill.damage = (baseSkill.damage || 0) + 12;
+      baseSkill.name = `${baseSkill.name} Mejorado`;
+      baseSkill.description = 'Versión potenciada con mayor efecto';
+      this.addMessage(`¡Fusión de hielo! ${baseSkill.name} es más poderoso.`, '#4488ff');
+      this.spawnParticles(this.player.pos.x, this.player.pos.y, '#4488ff', 25);
+    } else {
+      this.addMessage(`No hay habilidades suficientes para fusionar.`, '#888888');
+      this.addMessage(`Necesitas 2 habilidades del mismo tipo (nivel 2+).`, '#666666');
+    }
   }
 
   updateProjectiles(): void {
@@ -447,8 +494,25 @@ export class GameEngine {
       return;
     }
 
-    // Melee attack
-    const atk = this.getPlayerAttack();
+    // Basic melee attack with fatigue system
+    const now = Date.now();
+    const timeSinceLastAttack = now - this.player.lastAttackTime;
+    
+    // Increase fatigue if attacking too quickly (less than 500ms between attacks)
+    if (timeSinceLastAttack < 500) {
+      this.player.fatigue = Math.min(100, this.player.fatigue + 15);
+    } else if (timeSinceLastAttack < 1000) {
+      this.player.fatigue = Math.min(100, this.player.fatigue + 5);
+    } else {
+      // Recover fatigue over time
+      this.player.fatigue = Math.max(0, this.player.fatigue - 10);
+    }
+    
+    this.player.lastAttackTime = now;
+    
+    // Calculate damage with fatigue reduction
+    const fatigueMultiplier = 1 - (this.player.fatigue / 150); // At 100 fatigue, damage is 33%
+    const atk = Math.floor(this.getPlayerAttack() * fatigueMultiplier);
     const dmg = Math.max(1, atk - monster.defense + Math.floor(Math.random() * 3));
     const crit = Math.random() < (this.player.stats.dexterity / 50);
     const finalDmg = crit ? dmg * 2 : dmg;
@@ -458,6 +522,11 @@ export class GameEngine {
     this.player.attackTimer = 200;
 
     this.spawnParticles(monster.pos.x, monster.pos.y, '#ff4444', 8);
+
+    // Show fatigue warning
+    if (this.player.fatigue > 70) {
+      this.addMessage(`¡Estás cansado! El ataque es menos efectivo.`, '#ff8844');
+    }
 
     if (crit) {
       this.addMessage(`¡CRÍTICO! Golpeas a ${monster.name} por ${finalDmg} daño!`, '#ffff00');
@@ -681,6 +750,12 @@ export class GameEngine {
       if (this.player.stats.mp < this.player.stats.maxMp) {
         this.player.stats.mp = Math.min(this.player.stats.maxMp, this.player.stats.mp + 1);
       }
+    }
+
+    // Fatigue recovery over time
+    const timeSinceLastAttack = Date.now() - this.player.lastAttackTime;
+    if (timeSinceLastAttack > 2000 && this.player.fatigue > 0) {
+      this.player.fatigue = Math.max(0, this.player.fatigue - 2);
     }
 
     // Decrease invulnerability

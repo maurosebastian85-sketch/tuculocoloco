@@ -11,6 +11,7 @@ export const ALL_SKILLS: Skill[] = [
     cooldown: 1000,
     lastUsed: 0,
     unlocked: false,
+    level: 1,
     sprite: [
       [0,0,0,1,1,0,0,0],
       [0,0,1,2,2,1,0,0],
@@ -32,6 +33,7 @@ export const ALL_SKILLS: Skill[] = [
     cooldown: 800,
     lastUsed: 0,
     unlocked: false,
+    level: 1,
     sprite: [
       [0,0,0,1,1,0,0,0],
       [0,0,1,2,2,1,0,0],
@@ -53,6 +55,7 @@ export const ALL_SKILLS: Skill[] = [
     cooldown: 2000,
     lastUsed: 0,
     unlocked: false,
+    level: 1,
     sprite: [
       [0,0,0,0,0,1,1,0],
       [0,0,0,0,1,2,1,0],
@@ -74,6 +77,7 @@ export const ALL_SKILLS: Skill[] = [
     cooldown: 5000,
     lastUsed: 0,
     unlocked: false,
+    level: 1,
     sprite: [
       [0,0,0,1,1,0,0,0],
       [0,0,1,2,2,1,0,0],
@@ -95,6 +99,7 @@ export const ALL_SKILLS: Skill[] = [
     cooldown: 3000,
     lastUsed: 0,
     unlocked: false,
+    level: 1,
     sprite: [
       [0,1,0,1,0,1,0,1],
       [1,2,1,2,1,2,1,2],
@@ -116,6 +121,7 @@ export const ALL_SKILLS: Skill[] = [
     cooldown: 4000,
     lastUsed: 0,
     unlocked: false,
+    level: 1,
     sprite: [
       [0,0,1,1,1,1,0,0],
       [0,1,2,2,2,2,1,0],
