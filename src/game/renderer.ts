@@ -141,7 +141,13 @@ export class Renderer {
     // Subtitle
     ctx.fillStyle = '#888888';
     ctx.font = '14px monospace';
-    ctx.fillText('A Pixel Art Dungeon Crawler', canvas.width / 2, canvas.height / 3 + 40);
+    ctx.fillText('Un Dungeon Crawler en Pixel Art', canvas.width / 2, canvas.height / 3 + 40);
+    
+    // Narrative intro
+    ctx.fillStyle = '#666688';
+    ctx.font = '11px monospace';
+    ctx.fillText('Despiertas en la oscuridad sin recuerdos...', canvas.width / 2, canvas.height / 3 + 70);
+    ctx.fillText('¿Quién eres? ¿Qué haces aquí?', canvas.width / 2, canvas.height / 3 + 88);
 
     // Start prompt
     const alpha = 0.5 + Math.sin(time * 3) * 0.5;
@@ -151,9 +157,9 @@ export class Renderer {
 
     // Controls
     ctx.fillStyle = '#666666';
-    ctx.font = '12px monospace';
-    ctx.fillText('WASD/Arrows: Move  |  Space: Attack  |  F: Fireball  |  I: Inventory', canvas.width / 2, canvas.height - 80);
-    ctx.fillText('ENTER: Descend Stairs  |  1-4: Use Quick Potion', canvas.width / 2, canvas.height - 60);
+    ctx.font = '11px monospace';
+    ctx.fillText('WASD/Flechas: Mover | Espacio: Atacar | Tab: Cambiar Modo', canvas.width / 2, canvas.height - 80);
+    ctx.fillText('F/Q/E/R: Habilidades | I: Inventario | Enter: Bajar Escaleras', canvas.width / 2, canvas.height - 60);
 
     // Decorative pixel art - animated characters on menu
     const menuFrame = Math.floor(time * 2) % 2;
@@ -488,12 +494,16 @@ export class Renderer {
       // Floating animation
       const floatOffset = Math.sin(time / 400 + itemData.pos.x * 2) * 2;
 
-      // Glow effect based on rarity
+      // Glow effect based on rarity and type
       let glowColor = 'rgba(255, 255, 100, ';
-      switch (itemData.item.rarity) {
-        case 'magic': glowColor = 'rgba(100, 150, 255, '; break;
-        case 'rare': glowColor = 'rgba(180, 100, 255, '; break;
-        case 'unique': glowColor = 'rgba(255, 150, 50, '; break;
+      if (itemData.item.type === 'scroll') {
+        glowColor = 'rgba(255, 220, 100, ';
+      } else {
+        switch (itemData.item.rarity) {
+          case 'magic': glowColor = 'rgba(100, 150, 255, '; break;
+          case 'rare': glowColor = 'rgba(180, 100, 255, '; break;
+          case 'unique': glowColor = 'rgba(255, 150, 50, '; break;
+        }
       }
       
       const glowAlpha = 0.2 + Math.sin(time / 500 + itemData.pos.x) * 0.15;
@@ -519,6 +529,9 @@ export class Renderer {
 
   getItemPalette(item: any): string[] {
     switch (item.type) {
+      case 'scroll':
+        // Skill scrolls - golden/mystical
+        return ['#4a3a0a', '#6a5a1a', '#9a8a2a', '#bbaa3a', '#ddcc4a'];
       case 'potion':
         if (item.healAmount) {
           // Health potion - red
@@ -739,19 +752,67 @@ export class Renderer {
       const px = proj.pos.x * tileSize + tileSize / 2;
       const py = proj.pos.y * tileSize + tileSize / 2;
       
-      // Fireball glow
-      const gradient = ctx.createRadialGradient(px, py, 0, px, py, tileSize / 2);
-      gradient.addColorStop(0, 'rgba(255, 200, 0, 0.8)');
-      gradient.addColorStop(0.5, 'rgba(255, 100, 0, 0.5)');
-      gradient.addColorStop(1, 'rgba(255, 0, 0, 0)');
-      ctx.fillStyle = gradient;
-      ctx.beginPath();
-      ctx.arc(px, py, tileSize / 2, 0, Math.PI * 2);
-      ctx.fill();
+      // Determine projectile type by damage and speed
+      const isArrow = proj.speed >= 0.25;
+      
+      if (isArrow) {
+        // Arrow - simple line with tip
+        const angle = Math.atan2(proj.dir.y, proj.dir.x);
+        ctx.save();
+        ctx.translate(px, py);
+        ctx.rotate(angle);
+        
+        // Arrow shaft
+        ctx.fillStyle = '#8B4513';
+        ctx.fillRect(-8, -1, 16, 2);
+        
+        // Arrow head
+        ctx.fillStyle = '#C0C0C0';
+        ctx.beginPath();
+        ctx.moveTo(8, 0);
+        ctx.lineTo(4, -3);
+        ctx.lineTo(4, 3);
+        ctx.closePath();
+        ctx.fill();
+        
+        // Arrow fletching
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(-8, -2, 3, 1);
+        ctx.fillRect(-8, 1, 3, 1);
+        
+        ctx.restore();
+      } else {
+        // Magic projectile - fireball/ice/lightning
+        // Glow effect
+        const gradient = ctx.createRadialGradient(px, py, 0, px, py, tileSize / 2);
+        
+        // Color based on damage (rough indicator of type)
+        if (proj.damage > 20) {
+          // Lightning - yellow
+          gradient.addColorStop(0, 'rgba(255, 255, 100, 0.9)');
+          gradient.addColorStop(0.5, 'rgba(255, 255, 0, 0.5)');
+          gradient.addColorStop(1, 'rgba(200, 200, 0, 0)');
+        } else if (proj.damage > 12) {
+          // Ice - blue
+          gradient.addColorStop(0, 'rgba(100, 200, 255, 0.9)');
+          gradient.addColorStop(0.5, 'rgba(50, 150, 255, 0.5)');
+          gradient.addColorStop(1, 'rgba(0, 100, 200, 0)');
+        } else {
+          // Fire - orange/red
+          gradient.addColorStop(0, 'rgba(255, 200, 0, 0.8)');
+          gradient.addColorStop(0.5, 'rgba(255, 100, 0, 0.5)');
+          gradient.addColorStop(1, 'rgba(255, 0, 0, 0)');
+        }
+        
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.arc(px, py, tileSize / 2, 0, Math.PI * 2);
+        ctx.fill();
 
-      // Core
-      ctx.fillStyle = '#ffff88';
-      ctx.fillRect(px - 3, py - 3, 6, 6);
+        // Core
+        ctx.fillStyle = proj.damage > 20 ? '#ffff44' : proj.damage > 12 ? '#88ccff' : '#ffff88';
+        ctx.fillRect(px - 3, py - 3, 6, 6);
+      }
     }
   }
 
@@ -932,6 +993,82 @@ export class Renderer {
     ctx.fillStyle = '#777788';
     ctx.font = '9px monospace';
     ctx.fillText(`STR:${player.stats.strength} DEX:${player.stats.dexterity} VIT:${player.stats.vitality} MAG:${player.stats.magic}`, statsX, panelY + 68);
+
+    // Attack mode indicator
+    const modeX = statsX + 90;
+    ctx.fillStyle = player.attackMode === 'melee' ? '#cc6666' : '#66cc66';
+    ctx.font = 'bold 10px monospace';
+    ctx.fillText(`[${player.attackMode === 'melee' ? '⚔ ESPADA' : '🏹 ARCO'}]`, modeX, panelY + 50);
+    ctx.fillStyle = '#555566';
+    ctx.font = '8px monospace';
+    ctx.fillText('Tab: cambiar', modeX, panelY + 62);
+
+    // Skills bar (bottom right of HUD)
+    const skillBarX = canvas.width - 200;
+    const skillBarY = panelY + 8;
+    ctx.fillStyle = '#888899';
+    ctx.font = '8px monospace';
+    ctx.fillText('HABILIDADES', skillBarX, skillBarY);
+    
+    const skillKeys = ['F', 'Q', 'E', 'R'];
+    const now = Date.now();
+    for (let i = 0; i < Math.min(4, player.skills.length); i++) {
+      const skill = player.skills[i];
+      const sx = skillBarX + i * 45;
+      const sy = skillBarY + 8;
+      const boxSize = 36;
+      
+      // Skill box background
+      if (skill.unlocked) {
+        const onCooldown = (now - skill.lastUsed < skill.cooldown);
+        ctx.fillStyle = onCooldown ? '#1a1a2a' : '#0a0a1a';
+        ctx.fillRect(sx, sy, boxSize, boxSize);
+        ctx.strokeStyle = onCooldown ? '#333344' : '#444466';
+        ctx.lineWidth = onCooldown ? 1 : 2;
+        ctx.strokeRect(sx, sy, boxSize, boxSize);
+        
+        // Skill icon (colored square based on type)
+        let iconColor = '#888888';
+        switch (skill.type) {
+          case 'fire': iconColor = '#ff4400'; break;
+          case 'ice': iconColor = '#4488ff'; break;
+          case 'lightning': iconColor = '#ffff00'; break;
+          case 'heal': iconColor = '#44ff44'; break;
+        }
+        ctx.fillStyle = iconColor;
+        ctx.fillRect(sx + 8, sy + 8, 20, 20);
+        
+        // Cooldown overlay
+        if (onCooldown) {
+          const cdPercent = (skill.cooldown - (now - skill.lastUsed)) / skill.cooldown;
+          ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+          ctx.fillRect(sx, sy, boxSize, boxSize * cdPercent);
+        }
+        
+        // Key label
+        ctx.fillStyle = '#ffdd44';
+        ctx.font = 'bold 9px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText(skillKeys[i], sx + 2, sy + 10);
+        
+        // Mana cost
+        ctx.fillStyle = '#4488ff';
+        ctx.font = '7px monospace';
+        ctx.fillText(`${skill.manaCost}`, sx + 2, sy + boxSize - 2);
+      } else {
+        // Locked skill
+        ctx.fillStyle = '#0a0a0a';
+        ctx.fillRect(sx, sy, boxSize, boxSize);
+        ctx.strokeStyle = '#222233';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(sx, sy, boxSize, boxSize);
+        ctx.fillStyle = '#333344';
+        ctx.font = '14px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('🔒', sx + boxSize / 2, sy + boxSize / 2 + 5);
+      }
+    }
+    ctx.textAlign = 'left';
 
     // Messages log
     const msgX = statsX + 220;

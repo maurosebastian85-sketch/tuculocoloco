@@ -111,14 +111,40 @@ function App() {
           break;
         case ' ':
           e.preventDefault();
-          // Attack in facing direction
-          engine.movePlayer(engine.player.direction.x, engine.player.direction.y);
+          // Attack in facing direction (melee or ranged based on mode)
+          if (engine.player.attackMode === 'ranged') {
+            engine.shootArrow();
+          } else {
+            engine.movePlayer(engine.player.direction.x, engine.player.direction.y);
+          }
           break;
         case 'f':
         case 'F':
           e.preventDefault();
-          engine.castSpell();
+          engine.useSkill(0); // First skill
           triggerUpdate();
+          break;
+        case 'q':
+        case 'Q':
+          e.preventDefault();
+          engine.useSkill(1); // Second skill
+          triggerUpdate();
+          break;
+        case 'e':
+        case 'E':
+          e.preventDefault();
+          engine.useSkill(2); // Third skill
+          triggerUpdate();
+          break;
+        case 'r':
+        case 'R':
+          e.preventDefault();
+          engine.useSkill(3); // Fourth skill
+          triggerUpdate();
+          break;
+        case 'Tab':
+          e.preventDefault();
+          engine.toggleAttackMode();
           break;
         case 'i':
         case 'I':
@@ -258,6 +284,56 @@ function App() {
               </div>
             </div>
 
+            {/* Skills */}
+            <div className="mb-4 p-3 bg-[#111122] rounded border border-[#222244]">
+              <h3 className="text-sm font-bold text-[#aaaaaa] font-mono mb-2">HABILIDADES</h3>
+              {player?.skills.length === 0 ? (
+                <p className="text-[#444444] text-xs font-mono">No tienes habilidades. Encuentra pergaminos para aprender.</p>
+              ) : (
+                <div className="grid grid-cols-1 gap-2">
+                  {player?.skills.map((skill, index) => {
+                    const keys = ['F', 'Q', 'E', 'R'];
+                    const now = Date.now();
+                    const onCooldown = skill.unlocked && (now - skill.lastUsed < skill.cooldown);
+                    const cooldownRemaining = onCooldown ? Math.ceil((skill.cooldown - (now - skill.lastUsed)) / 1000) : 0;
+                    
+                    return (
+                      <div
+                        key={skill.id}
+                        className={`flex items-center justify-between p-2 rounded border ${
+                          skill.unlocked 
+                            ? 'bg-[#0a0a15] border-[#333355]' 
+                            : 'bg-[#0a0a0a] border-[#1a1a1a] opacity-50'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs font-mono text-[#ffdd44] bg-[#222200] px-2 py-1 rounded">
+                            {keys[index] || '?'}
+                          </span>
+                          <div>
+                            <span className={`text-xs font-mono font-bold ${skill.unlocked ? 'text-[#cccccc]' : 'text-[#444444]'}`}>
+                              {skill.name}
+                            </span>
+                            <span className="text-xs font-mono text-[#666688] ml-2">
+                              ({skill.manaCost} MP)
+                            </span>
+                            {onCooldown && (
+                              <span className="text-xs font-mono text-[#ff8844] ml-2">
+                                CD: {cooldownRemaining}s
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-xs font-mono text-[#888888]">
+                          {skill.unlocked ? skill.description : '🔒 No desbloqueada'}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
             {/* Items */}
             <div className="p-3 bg-[#111122] rounded border border-[#222244]">
               <h3 className="text-sm font-bold text-[#aaaaaa] font-mono mb-2">
@@ -354,7 +430,7 @@ function App() {
           <button
             onTouchStart={() => {
               if (engineRef.current) {
-                engineRef.current.castSpell();
+                engineRef.current.useSkill(0);
                 triggerUpdate();
               }
             }}
@@ -365,15 +441,30 @@ function App() {
           <button
             onTouchStart={() => {
               if (engineRef.current) {
-                engineRef.current.movePlayer(
-                  engineRef.current.player.direction.x,
-                  engineRef.current.player.direction.y
-                );
+                if (engineRef.current.player.attackMode === 'ranged') {
+                  engineRef.current.shootArrow();
+                } else {
+                  engineRef.current.movePlayer(
+                    engineRef.current.player.direction.x,
+                    engineRef.current.player.direction.y
+                  );
+                }
               }
             }}
             className="w-12 h-12 bg-[#442222] border border-[#664444] rounded flex items-center justify-center text-white text-xs font-mono active:bg-[#663333]"
           >
-            ATK
+            {engine?.player.attackMode === 'ranged' ? '🏹' : '⚔️'}
+          </button>
+          <button
+            onTouchStart={() => {
+              if (engineRef.current) {
+                engineRef.current.toggleAttackMode();
+                triggerUpdate();
+              }
+            }}
+            className="w-12 h-12 bg-[#224422] border border-[#446644] rounded flex items-center justify-center text-white text-xs font-mono active:bg-[#336633]"
+          >
+            ⇄
           </button>
           <button
             onTouchStart={() => { setShowInventory(true); triggerUpdate(); }}

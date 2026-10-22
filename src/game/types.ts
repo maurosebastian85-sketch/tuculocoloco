@@ -90,6 +90,19 @@ export interface GameMessage {
 
 export type GameState = 'menu' | 'playing' | 'inventory' | 'dead' | 'levelup';
 
+export interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  manaCost: number;
+  damage?: number;
+  type: 'fire' | 'ice' | 'lightning' | 'heal' | 'buff';
+  cooldown: number;
+  lastUsed: number;
+  unlocked: boolean;
+  sprite: number[][];
+}
+
 export interface Player {
   pos: Position;
   stats: Stats;
@@ -105,4 +118,6 @@ export interface Player {
   attackTimer: number;
   invulnerable: number;
   gold: number;
+  skills: Skill[];
+  attackMode: 'melee' | 'ranged';
 }
