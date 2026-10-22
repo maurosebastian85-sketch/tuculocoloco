@@ -3,6 +3,7 @@ import {
   SKELETON_1, DEMON_1, WRAITH_1, BAT_1,
   PALETTES 
 } from './sprites';
+import { getRandomSkill, createSkillScroll } from './skills';
 
 export const DUNGEON_WIDTH = 40;
 export const DUNGEON_HEIGHT = 30;
@@ -332,7 +333,14 @@ export function generateDungeon(level: number): DungeonLevel {
     const ix = randomInt(room.x + 1, room.x + room.width - 2);
     const iy = randomInt(room.y + 1, room.y + room.height - 2);
     if (tiles[iy][ix] === 'floor') {
-      items.push({ pos: { x: ix, y: iy }, item: createItem(level) });
+      // 20% chance to be a skill scroll
+      if (Math.random() < 0.2) {
+        const skill = getRandomSkill();
+        const scroll = createSkillScroll(skill);
+        items.push({ pos: { x: ix, y: iy }, item: scroll });
+      } else {
+        items.push({ pos: { x: ix, y: iy }, item: createItem(level) });
+      }
     }
   }
 

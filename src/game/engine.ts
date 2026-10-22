@@ -1,5 +1,7 @@
-import { Player, Monster, Position, Particle, GameMessage, GameState, Item, Projectile } from './types';
+import { Player, Monster, Position, Particle, GameMessage, GameState, Item, Projectile, Skill } from './types';
 import { DungeonLevel, generateDungeon, computeFOV, DUNGEON_WIDTH, DUNGEON_HEIGHT } from './dungeon';
+import { getNarrativeEvent } from './narrative';
+import { ALL_SKILLS, getRandomSkill, createSkillScroll } from './skills';
 
 const VISION_RADIUS = 8;
 
@@ -16,6 +18,9 @@ export class GameEngine {
   cameraY: number = 0;
   onStateChange?: () => void;
   animFrame: number = 0;
+  killedOnFloor: boolean = false;
+  foundItemOnFloor: boolean = false;
+  narrativeShown: Set<string> = new Set();
 
   constructor() {
     this.player = this.createPlayer();
@@ -53,6 +58,10 @@ export class GameEngine {
       attackTimer: 0,
       invulnerable: 0,
       gold: 0,
+      skills: [],
+      attackMode: 'melee',
+      fatigue: 0,
+      lastAttackTime: 0,
     };
   }
 
@@ -66,10 +75,34 @@ export class GameEngine {
     this.projectiles = [];
     this.gameState = 'playing';
     this.turn = 0;
-    this.addMessage('You descend into the dungeon depths...', '#aaaaff');
-    this.addMessage('Use WASD/Arrows to move, Space to attack, I for inventory.', '#888888');
+    this.killedOnFloor = false;
+    this.foundItemOnFloor = false;
+    this.narrativeShown = new Set();
+    
+    // Give player the first skill (fireball) at start but not unlocked yet
+    this.player.skills = [{ ...ALL_SKILLS[0], unlocked: false }];
+    
+    this.addMessage('...', '#666666');
+    this.triggerNarrative('enter');
+    this.addMessage('WASD: Mover | Espacio: Atacar | F: Habilidad | I: Inventario', '#555555');
+    this.addMessage('Tab: Cambiar ataque (Cuerpo/Arco)', '#555555');
     computeFOV(this.dungeon.tiles, this.dungeon.revealed, this.dungeon.visible, this.player.pos, VISION_RADIUS);
     this.onStateChange?.();
+  }
+
+  triggerNarrative(trigger: 'enter' | 'first_kill' | 'find_item' | 'boss'): void {
+    const key = `${this.dungeonLevel}_${trigger}`;
+    if (this.narrativeShown.has(key)) return;
+    
+    const event = getNarrativeEvent(this.dungeonLevel, trigger);
+    if (event) {
+      this.narrativeShown.add(key);
+      // Add with delay effect (multiple messages)
+      setTimeout(() => {
+        this.addMessage(`--- ${event.text} ---`, event.color);
+        this.onStateChange?.();
+      }, 500);
+    }
   }
 
   nextLevel(): void {
@@ -78,7 +111,12 @@ export class GameEngine {
     this.player.pos = { ...this.dungeon.playerStart };
     this.particles = [];
     this.projectiles = [];
-    this.addMessage(`You descend to dungeon level ${this.dungeonLevel}...`, '#aaaaff');
+    this.killedOnFloor = false;
+    this.foundItemOnFloor = false;
+    
+    this.addMessage(`Desciendes al piso ${this.dungeonLevel}...`, '#aaaaff');
+    this.triggerNarrative('enter');
+    
     computeFOV(this.dungeon.tiles, this.dungeon.revealed, this.dungeon.visible, this.player.pos, VISION_RADIUS);
     this.onStateChange?.();
   }
@@ -104,29 +142,245 @@ export class GameEngine {
     return def;
   }
 
-  castSpell(): void {
-    if (this.gameState !== 'playing') return;
-    if (this.player.stats.mp < 5) {
-      this.addMessage('Not enough mana!', '#4444ff');
-      return;
+  toggleAttackMode(): void {
+    if (this.player.attackMode === 'melee') {
+      this.player.attackMode = 'ranged';
+      this.addMessage('Modo: Arco y Flecha', '#88cc88');
+    } else {
+      this.player.attackMode = 'melee';
+      this.addMessage('Modo: Espada', '#cc8888');
     }
+    this.onStateChange?.();
+  }
 
-    this.player.stats.mp -= 5;
+  shootArrow(): void {
+    if (this.gameState !== 'playing') return;
+    
     const dir = this.player.direction;
+    if (dir.x === 0 && dir.y === 0) return;
+    
+    this.player.isAttacking = true;
+    this.player.attackTimer = 300;
     
     this.projectiles.push({
       pos: { x: this.player.pos.x, y: this.player.pos.y },
       dir: { x: dir.x, y: dir.y },
-      speed: 0.15,
-      damage: this.player.stats.magic * 3 + 5,
+      speed: 0.25,
+      damage: this.getPlayerAttack() + Math.floor(this.player.stats.dexterity / 2),
       distance: 0,
-      maxDistance: 8,
+      maxDistance: 10,
       fromPlayer: true,
     });
 
-    this.addMessage('You cast a fireball!', '#ff8800');
-    this.spawnParticles(this.player.pos.x, this.player.pos.y, '#ff8800', 5);
+    this.addMessage('¡Disparas una flecha!', '#aacc88');
     this.processTurn();
+  }
+
+  useSkill(skillIndex: number): void {
+    if (this.gameState !== 'playing') return;
+    
+    const skill = this.player.skills[skillIndex];
+    if (!skill || !skill.unlocked) {
+      this.addMessage('Habilidad no desbloqueada', '#888888');
+      return;
+    }
+
+    const now = Date.now();
+    if (now - skill.lastUsed < skill.cooldown) {
+      const remaining = Math.ceil((skill.cooldown - (now - skill.lastUsed)) / 1000);
+      this.addMessage(`${skill.name} en enfriamiento (${remaining}s)`, '#888888');
+      return;
+    }
+
+    if (this.player.stats.mp < skill.manaCost) {
+      this.addMessage('¡Mana insuficiente!', '#4444ff');
+      return;
+    }
+
+    this.player.stats.mp -= skill.manaCost;
+    skill.lastUsed = now;
+
+    const dir = this.player.direction;
+
+    switch (skill.type) {
+      case 'fire':
+        this.castFireSkill(skill, dir);
+        break;
+      case 'ice':
+        this.castIceSkill(skill, dir);
+        break;
+      case 'lightning':
+        this.castLightningSkill(skill, dir);
+        break;
+      case 'heal':
+        this.castHealSkill(skill);
+        break;
+    }
+
+    this.processTurn();
+  }
+
+  castFireSkill(skill: Skill, dir: Position): void {
+    if (skill.id === 'fire_wall') {
+      // Create multiple fire projectiles in a spread
+      for (let i = -1; i <= 1; i++) {
+        const perpX = -dir.y * i;
+        const perpY = dir.x * i;
+        this.projectiles.push({
+          pos: { x: this.player.pos.x + perpX, y: this.player.pos.y + perpY },
+          dir: { x: dir.x, y: dir.y },
+          speed: 0.12,
+          damage: skill.damage || 15,
+          distance: 0,
+          maxDistance: 6,
+          fromPlayer: true,
+        });
+      }
+      this.addMessage(`¡${skill.name}!`, '#ff6600');
+      this.spawnParticles(this.player.pos.x, this.player.pos.y, '#ff4400', 8);
+    } else {
+      // Single fireball
+      this.projectiles.push({
+        pos: { x: this.player.pos.x, y: this.player.pos.y },
+        dir: { x: dir.x, y: dir.y },
+        speed: 0.15,
+        damage: skill.damage || 15,
+        distance: 0,
+        maxDistance: 8,
+        fromPlayer: true,
+      });
+      this.addMessage(`¡${skill.name}!`, '#ff8800');
+      this.spawnParticles(this.player.pos.x, this.player.pos.y, '#ff8800', 5);
+    }
+  }
+
+  castIceSkill(skill: Skill, dir: Position): void {
+    if (skill.id === 'frost_nova') {
+      // Damage all nearby enemies
+      for (const monster of this.dungeon.monsters) {
+        if (monster.isDead) continue;
+        const dist = Math.abs(monster.pos.x - this.player.pos.x) + Math.abs(monster.pos.y - this.player.pos.y);
+        if (dist <= 4) {
+          const dmg = Math.max(1, (skill.damage || 18) - monster.defense);
+          monster.hp -= dmg;
+          this.spawnParticles(monster.pos.x, monster.pos.y, '#88ccff', 8);
+          if (monster.hp <= 0) {
+            monster.isDead = true;
+            monster.deathTimer = 500;
+            this.gainExp(monster.exp);
+          }
+        }
+      }
+      this.spawnParticles(this.player.pos.x, this.player.pos.y, '#aaddff', 20);
+      this.addMessage(`¡${skill.name}!`, '#88ccff');
+    } else {
+      // Ice shard projectile
+      this.projectiles.push({
+        pos: { x: this.player.pos.x, y: this.player.pos.y },
+        dir: { x: dir.x, y: dir.y },
+        speed: 0.2,
+        damage: skill.damage || 12,
+        distance: 0,
+        maxDistance: 7,
+        fromPlayer: true,
+      });
+      this.addMessage(`¡${skill.name}!`, '#88ccff');
+      this.spawnParticles(this.player.pos.x, this.player.pos.y, '#88ccff', 5);
+    }
+  }
+
+  castLightningSkill(skill: Skill, dir: Position): void {
+    // Lightning pierces through enemies in a line
+    for (let i = 1; i <= 8; i++) {
+      const tx = this.player.pos.x + dir.x * i;
+      const ty = this.player.pos.y + dir.y * i;
+      
+      if (tx < 0 || tx >= DUNGEON_WIDTH || ty < 0 || ty >= DUNGEON_HEIGHT) break;
+      if (this.dungeon.tiles[ty][tx] === 'wall') break;
+      
+      this.spawnParticles(tx, ty, '#ffff44', 3);
+      
+      for (const monster of this.dungeon.monsters) {
+        if (monster.isDead) continue;
+        if (monster.pos.x === tx && monster.pos.y === ty) {
+          const dmg = Math.max(1, (skill.damage || 25) - monster.defense);
+          monster.hp -= dmg;
+          this.addMessage(`¡Rayo impacta a ${monster.name} por ${dmg}!`, '#ffff44');
+          if (monster.hp <= 0) {
+            monster.isDead = true;
+            monster.deathTimer = 500;
+            this.gainExp(monster.exp);
+          }
+        }
+      }
+    }
+    this.addMessage(`¡${skill.name}!`, '#ffff44');
+  }
+
+  castHealSkill(skill: Skill): void {
+    const healAmount = Math.abs(skill.damage || 30);
+    this.player.stats.hp = Math.min(this.player.stats.maxHp, this.player.stats.hp + healAmount);
+    this.spawnParticles(this.player.pos.x, this.player.pos.y, '#44ff44', 15);
+    this.addMessage(`¡${skill.name}! +${healAmount} HP`, '#44ff44');
+  }
+
+  learnSkill(skill: Skill): void {
+    // Check if already learned
+    const existing = this.player.skills.find(s => s.id === skill.id);
+    if (existing) {
+      // Level up the skill
+      existing.level++;
+      existing.unlocked = true;
+      
+      // Increase damage/healing based on level
+      if (existing.damage) {
+        if (existing.damage < 0) {
+          // Healing skill - increase healing
+          existing.damage -= 10;
+        } else {
+          // Damage skill - increase damage
+          existing.damage += 5;
+        }
+      }
+      
+      // Reduce cooldown slightly
+      existing.cooldown = Math.max(500, existing.cooldown - 100);
+      
+      this.addMessage(`¡${skill.name} subió al nivel ${existing.level}!`, '#ffdd44');
+      this.addMessage(`  Daño/Curación aumentado, enfriamiento reducido.`, '#aaaaaa');
+    } else {
+      this.player.skills.push({ ...skill, unlocked: true, lastUsed: 0, level: 1 });
+      this.addMessage(`¡Nueva habilidad: ${skill.name}!`, '#ffdd44');
+      this.addMessage(`  "${skill.description}"`, '#aaaaaa');
+    }
+    this.spawnParticles(this.player.pos.x, this.player.pos.y, '#ffdd44', 20);
+  }
+
+  fuseSkills(): void {
+    // Fuse two skills of the same type to create a stronger version
+    const fireSkills = this.player.skills.filter(s => s.type === 'fire' && s.unlocked && s.level >= 2);
+    const iceSkills = this.player.skills.filter(s => s.type === 'ice' && s.unlocked && s.level >= 2);
+    
+    if (fireSkills.length >= 2) {
+      // Fuse fire skills into a more powerful one
+      const baseSkill = fireSkills[0];
+      baseSkill.damage = (baseSkill.damage || 0) + 15;
+      baseSkill.name = `${baseSkill.name} Mejorado`;
+      baseSkill.description = 'Versión potenciada con mayor daño';
+      this.addMessage(`¡Fusión de fuego! ${baseSkill.name} es más poderosa.`, '#ff4400');
+      this.spawnParticles(this.player.pos.x, this.player.pos.y, '#ff4400', 25);
+    } else if (iceSkills.length >= 2) {
+      // Fuse ice skills
+      const baseSkill = iceSkills[0];
+      baseSkill.damage = (baseSkill.damage || 0) + 12;
+      baseSkill.name = `${baseSkill.name} Mejorado`;
+      baseSkill.description = 'Versión potenciada con mayor efecto';
+      this.addMessage(`¡Fusión de hielo! ${baseSkill.name} es más poderoso.`, '#4488ff');
+      this.spawnParticles(this.player.pos.x, this.player.pos.y, '#4488ff', 25);
+    } else {
+      this.addMessage(`No hay habilidades suficientes para fusionar.`, '#888888');
+      this.addMessage(`Necesitas 2 habilidades del mismo tipo (nivel 2+).`, '#666666');
+    }
   }
 
   updateProjectiles(): void {
@@ -137,7 +391,7 @@ export class GameEngine {
 
       const tileX = Math.floor(proj.pos.x);
       const tileY = Math.floor(proj.pos.y);
-
+      
       // Check wall collision
       if (
         tileX < 0 || tileX >= DUNGEON_WIDTH ||
@@ -145,7 +399,7 @@ export class GameEngine {
         this.dungeon.tiles[tileY]?.[tileX] === 'wall'
       ) {
         this.spawnParticles(tileX, tileY, '#ff4400', 10);
-        proj.distance = proj.maxDistance; // Mark for removal
+        proj.distance = proj.maxDistance;
         continue;
       }
 
@@ -155,22 +409,28 @@ export class GameEngine {
         if (Math.floor(monster.pos.x) === tileX && Math.floor(monster.pos.y) === tileY) {
           const dmg = Math.max(1, proj.damage - monster.defense);
           monster.hp -= dmg;
-          this.addMessage(`Fireball hits ${monster.name} for ${dmg}!`, '#ff8800');
+          this.addMessage(`Impacto por ${dmg} daño!`, '#ff8888');
           this.spawnParticles(monster.pos.x, monster.pos.y, '#ff4400', 12);
           
           if (monster.hp <= 0) {
             monster.isDead = true;
             monster.deathTimer = 500;
-            this.addMessage(`${monster.name} is destroyed!`, '#44ff44');
+            this.addMessage(`¡${monster.name} destruido!`, '#44ff44');
             this.gainExp(monster.exp);
             this.spawnParticles(monster.pos.x, monster.pos.y, monster.color, 15);
+            
+            // Trigger narrative on first kill
+            if (!this.killedOnFloor) {
+              this.killedOnFloor = true;
+              this.triggerNarrative('first_kill');
+            }
           }
           proj.distance = proj.maxDistance;
           break;
         }
       }
 
-      // Spawn trail particles
+      // Trail particles
       this.spawnParticles(tileX, tileY, '#ff6600', 1);
     }
 
@@ -184,7 +444,6 @@ export class GameEngine {
     const newY = this.player.pos.y + dy;
     this.player.direction = { x: dx, y: dy };
 
-    // Check bounds
     if (newX < 0 || newX >= DUNGEON_WIDTH || newY < 0 || newY >= DUNGEON_HEIGHT) return;
 
     // Check for monster at target
@@ -210,14 +469,14 @@ export class GameEngine {
 
     // Check for stairs
     if (tile === 'stairs') {
-      this.addMessage('Press ENTER to descend deeper...', '#ffdd44');
+      this.addMessage('Presiona ENTER para descender...', '#ffdd44');
     }
 
     // Check for hazards
     if (tile === 'lava') {
       const dmg = 5 + this.dungeonLevel * 2;
       this.player.stats.hp -= dmg;
-      this.addMessage(`The lava burns you for ${dmg} damage!`, '#ff4400');
+      this.addMessage(`¡La lava te quema por ${dmg} daño!`, '#ff4400');
       this.spawnParticles(newX, newY, '#ff4400', 5);
       if (this.player.stats.hp <= 0) {
         this.playerDeath();
@@ -229,7 +488,31 @@ export class GameEngine {
   }
 
   attackMonster(monster: Monster): void {
-    const atk = this.getPlayerAttack();
+    if (this.player.attackMode === 'ranged') {
+      // Ranged attack shoots arrow
+      this.shootArrow();
+      return;
+    }
+
+    // Basic melee attack with fatigue system
+    const now = Date.now();
+    const timeSinceLastAttack = now - this.player.lastAttackTime;
+    
+    // Increase fatigue if attacking too quickly (less than 500ms between attacks)
+    if (timeSinceLastAttack < 500) {
+      this.player.fatigue = Math.min(100, this.player.fatigue + 15);
+    } else if (timeSinceLastAttack < 1000) {
+      this.player.fatigue = Math.min(100, this.player.fatigue + 5);
+    } else {
+      // Recover fatigue over time
+      this.player.fatigue = Math.max(0, this.player.fatigue - 10);
+    }
+    
+    this.player.lastAttackTime = now;
+    
+    // Calculate damage with fatigue reduction
+    const fatigueMultiplier = 1 - (this.player.fatigue / 150); // At 100 fatigue, damage is 33%
+    const atk = Math.floor(this.getPlayerAttack() * fatigueMultiplier);
     const dmg = Math.max(1, atk - monster.defense + Math.floor(Math.random() * 3));
     const crit = Math.random() < (this.player.stats.dexterity / 50);
     const finalDmg = crit ? dmg * 2 : dmg;
@@ -240,16 +523,21 @@ export class GameEngine {
 
     this.spawnParticles(monster.pos.x, monster.pos.y, '#ff4444', 8);
 
+    // Show fatigue warning
+    if (this.player.fatigue > 70) {
+      this.addMessage(`¡Estás cansado! El ataque es menos efectivo.`, '#ff8844');
+    }
+
     if (crit) {
-      this.addMessage(`CRITICAL! You hit ${monster.name} for ${finalDmg} damage!`, '#ffff00');
+      this.addMessage(`¡CRÍTICO! Golpeas a ${monster.name} por ${finalDmg} daño!`, '#ffff00');
     } else {
-      this.addMessage(`You hit ${monster.name} for ${finalDmg} damage.`, '#ff8888');
+      this.addMessage(`Golpeas a ${monster.name} por ${finalDmg} daño.`, '#ff8888');
     }
 
     if (monster.hp <= 0) {
       monster.isDead = true;
       monster.deathTimer = 500;
-      this.addMessage(`${monster.name} is destroyed!`, '#44ff44');
+      this.addMessage(`¡${monster.name} destruido!`, '#44ff44');
       this.gainExp(monster.exp);
       this.spawnParticles(monster.pos.x, monster.pos.y, monster.color, 15);
       
@@ -257,7 +545,13 @@ export class GameEngine {
       if (Math.random() < 0.5) {
         const gold = Math.floor(Math.random() * 10 * this.dungeonLevel) + 1;
         this.player.stats.gold += gold;
-        this.addMessage(`You find ${gold} gold!`, '#ffdd00');
+        this.addMessage(`¡Encuentras ${gold} oro!`, '#ffdd00');
+      }
+
+      // Trigger narrative on first kill
+      if (!this.killedOnFloor) {
+        this.killedOnFloor = true;
+        this.triggerNarrative('first_kill');
       }
     }
   }
@@ -274,7 +568,7 @@ export class GameEngine {
       this.player.stats.mp = this.player.stats.maxMp;
       this.player.stats.strength += 1;
       this.player.stats.attack += 1;
-      this.addMessage(`LEVEL UP! You are now level ${this.player.stats.level}!`, '#ffff00');
+      this.addMessage(`¡SUBIDA DE NIVEL! Ahora eres nivel ${this.player.stats.level}!`, '#ffff00');
       this.spawnParticles(this.player.pos.x, this.player.pos.y, '#ffff00', 20);
     }
   }
@@ -287,10 +581,22 @@ export class GameEngine {
     for (const itemData of itemsHere) {
       if (this.player.inventory.length < 20) {
         this.player.inventory.push(itemData.item);
-        this.addMessage(`Picked up: ${itemData.item.name}`, this.getRarityColor(itemData.item.rarity));
+        this.addMessage(`Recogido: ${itemData.item.name}`, this.getRarityColor(itemData.item.rarity));
         this.dungeon.items = this.dungeon.items.filter(i => i !== itemData);
+        
+        // Handle skill scrolls
+        if (itemData.item.type === 'scroll' && (itemData.item as any).skill) {
+          this.learnSkill((itemData.item as any).skill);
+          this.player.inventory.pop(); // Remove scroll after learning
+        }
+
+        // Trigger narrative on first item
+        if (!this.foundItemOnFloor) {
+          this.foundItemOnFloor = true;
+          this.triggerNarrative('find_item');
+        }
       } else {
-        this.addMessage('Inventory full!', '#ff4444');
+        this.addMessage('¡Inventario lleno!', '#ff4444');
       }
     }
 
@@ -300,33 +606,49 @@ export class GameEngine {
       const numItems = Math.floor(Math.random() * 3) + 1;
       for (let i = 0; i < numItems; i++) {
         if (this.player.inventory.length < 20) {
-          const item = this.generateChestItem();
-          this.player.inventory.push(item);
-          this.addMessage(`Found: ${item.name}`, this.getRarityColor(item.rarity));
+          // Higher chance of skill scroll from chests
+          if (Math.random() < 0.3) {
+            const skill = getRandomSkill();
+            const scroll = createSkillScroll(skill);
+            this.player.inventory.push(scroll);
+            this.addMessage(`¡Encontraste: ${scroll.name}!`, '#ffdd44');
+            this.learnSkill(skill);
+            this.player.inventory.pop();
+          } else {
+            const item = this.generateChestItem();
+            this.player.inventory.push(item);
+            this.addMessage(`Encontraste: ${item.name}`, this.getRarityColor(item.rarity));
+          }
         }
       }
       const gold = Math.floor(Math.random() * 20 * this.dungeonLevel) + 5;
       this.player.stats.gold += gold;
-      this.addMessage(`Found ${gold} gold in the chest!`, '#ffdd00');
+      this.addMessage(`¡${gold} oro en el cofre!`, '#ffdd00');
       this.spawnParticles(this.player.pos.x, this.player.pos.y, '#ffdd00', 10);
+      
+      // Trigger narrative
+      if (!this.foundItemOnFloor) {
+        this.foundItemOnFloor = true;
+        this.triggerNarrative('find_item');
+      }
     }
   }
 
   generateChestItem(): Item {
     const items: Item[] = [
       {
-        id: 'health_potion', name: 'Health Potion', type: 'potion', rarity: 'common',
-        healAmount: 20, description: 'Restores 20 HP.',
+        id: 'health_potion', name: 'Poción de Vida', type: 'potion', rarity: 'common',
+        healAmount: 20, description: 'Restaura 20 HP.',
         sprite: [[0,0,1,1,1,1,0,0],[0,0,1,2,2,1,0,0],[0,0,0,1,1,0,0,0],[0,0,1,1,1,1,0,0],[0,1,3,3,3,3,1,0],[0,1,3,4,4,3,1,0],[0,1,3,4,4,3,1,0],[0,0,1,1,1,1,0,0]],
       },
       {
-        id: 'iron_sword', name: 'Steel Sword', type: 'weapon', rarity: 'magic',
-        damage: 7, description: 'A well-crafted blade.',
+        id: 'iron_sword', name: 'Espada de Acero', type: 'weapon', rarity: 'magic',
+        damage: 7, description: 'Una hoja bien forjada.',
         sprite: [[0,0,0,0,0,0,1,2],[0,0,0,0,0,1,2,3],[0,0,0,0,1,2,3,0],[0,0,0,1,2,3,0,0],[0,0,1,2,1,0,0,0],[0,1,2,1,0,0,0,0],[1,2,1,0,0,0,0,0],[2,1,0,0,0,0,0,0]],
       },
       {
-        id: 'gold_ring', name: 'Gold Ring', type: 'ring', rarity: 'rare',
-        stats: { strength: 2, dexterity: 1 }, description: '+2 STR, +1 DEX',
+        id: 'gold_ring', name: 'Anillo de Oro', type: 'ring', rarity: 'rare',
+        stats: { strength: 2, dexterity: 1 }, description: '+2 FUE, +1 DES',
         sprite: [[0,0,1,1,1,1,0,0],[0,1,4,4,4,4,1,0],[1,4,0,0,0,0,4,1],[1,4,0,0,0,0,4,1],[1,4,0,0,0,0,4,1],[1,4,0,0,0,0,4,1],[0,1,4,4,4,4,1,0],[0,0,1,1,1,1,0,0]],
       },
     ];
@@ -350,15 +672,19 @@ export class GameEngine {
           this.player.stats.maxHp,
           this.player.stats.hp + item.healAmount
         );
-        this.addMessage(`Used ${item.name}. Restored ${item.healAmount} HP.`, '#44ff44');
+        this.addMessage(`Usaste ${item.name}. +${item.healAmount} HP.`, '#44ff44');
       }
       if (item.manaAmount) {
         this.player.stats.mp = Math.min(
           this.player.stats.maxMp,
           this.player.stats.mp + item.manaAmount
         );
-        this.addMessage(`Used ${item.name}. Restored ${item.manaAmount} MP.`, '#4444ff');
+        this.addMessage(`Usaste ${item.name}. +${item.manaAmount} MP.`, '#4444ff');
       }
+      this.player.inventory.splice(index, 1);
+    } else if (item.type === 'scroll' && (item as any).skill) {
+      // Learn skill from scroll
+      this.learnSkill((item as any).skill);
       this.player.inventory.splice(index, 1);
     } else if (item.type === 'weapon') {
       if (this.player.equipment.weapon) {
@@ -366,21 +692,21 @@ export class GameEngine {
       }
       this.player.equipment.weapon = item;
       this.player.inventory.splice(index, 1);
-      this.addMessage(`Equipped ${item.name}.`, '#ffdd44');
+      this.addMessage(`Equipaste ${item.name}.`, '#ffdd44');
     } else if (item.type === 'armor') {
       if (this.player.equipment.armor) {
         this.player.inventory.push(this.player.equipment.armor);
       }
       this.player.equipment.armor = item;
       this.player.inventory.splice(index, 1);
-      this.addMessage(`Equipped ${item.name}.`, '#ffdd44');
+      this.addMessage(`Equipaste ${item.name}.`, '#ffdd44');
     } else if (item.type === 'ring') {
       if (this.player.equipment.ring) {
         this.player.inventory.push(this.player.equipment.ring);
       }
       this.player.equipment.ring = item;
       this.player.inventory.splice(index, 1);
-      this.addMessage(`Equipped ${item.name}.`, '#ffdd44');
+      this.addMessage(`Equipaste ${item.name}.`, '#ffdd44');
       if (item.stats) {
         if (item.stats.strength) this.player.stats.strength += item.stats.strength;
         if (item.stats.dexterity) this.player.stats.dexterity += item.stats.dexterity;
@@ -391,7 +717,7 @@ export class GameEngine {
       }
       this.player.equipment.amulet = item;
       this.player.inventory.splice(index, 1);
-      this.addMessage(`Equipped ${item.name}.`, '#ffdd44');
+      this.addMessage(`Equipaste ${item.name}.`, '#ffdd44');
       if (item.stats) {
         if (item.stats.vitality) this.player.stats.vitality += item.stats.vitality;
         if (item.stats.maxHp) this.player.stats.maxHp += item.stats.maxHp;
@@ -402,7 +728,7 @@ export class GameEngine {
 
   dropItem(index: number): void {
     const item = this.player.inventory[index];
-    this.addMessage(`Dropped ${item.name}.`, '#888888');
+    this.addMessage(`Soltaste ${item.name}.`, '#888888');
     this.player.inventory.splice(index, 1);
     this.onStateChange?.();
   }
@@ -424,6 +750,12 @@ export class GameEngine {
       if (this.player.stats.mp < this.player.stats.maxMp) {
         this.player.stats.mp = Math.min(this.player.stats.maxMp, this.player.stats.mp + 1);
       }
+    }
+
+    // Fatigue recovery over time
+    const timeSinceLastAttack = Date.now() - this.player.lastAttackTime;
+    if (timeSinceLastAttack > 2000 && this.player.fatigue > 0) {
+      this.player.fatigue = Math.max(0, this.player.fatigue - 2);
     }
 
     // Decrease invulnerability
@@ -448,7 +780,6 @@ export class GameEngine {
       const dy = this.player.pos.y - monster.pos.y;
       const dist = Math.abs(dx) + Math.abs(dy);
 
-      // Only move if within detection range and visible
       if (dist > 12) continue;
       if (!this.dungeon.visible[monster.pos.y]?.[monster.pos.x] && dist > 6) continue;
 
@@ -471,7 +802,6 @@ export class GameEngine {
       const newX = monster.pos.x + moveX;
       const newY = monster.pos.y + moveY;
 
-      // Check if can move
       if (
         newX >= 0 && newX < DUNGEON_WIDTH &&
         newY >= 0 && newY < DUNGEON_HEIGHT &&
@@ -484,7 +814,6 @@ export class GameEngine {
       }
     }
 
-    // Clean up dead monsters
     this.dungeon.monsters = this.dungeon.monsters.filter(m => !m.isDead || m.deathTimer > 0);
   }
 
@@ -495,7 +824,7 @@ export class GameEngine {
     this.player.stats.hp -= dmg;
     this.player.invulnerable = 2;
     
-    this.addMessage(`${monster.name} hits you for ${dmg} damage!`, '#ff4444');
+    this.addMessage(`¡${monster.name} te golpea por ${dmg} daño!`, '#ff4444');
     this.spawnParticles(this.player.pos.x, this.player.pos.y, '#ff0000', 5);
 
     if (this.player.stats.hp <= 0) {
@@ -505,7 +834,7 @@ export class GameEngine {
 
   playerDeath(): void {
     this.gameState = 'dead';
-    this.addMessage('You have died...', '#ff0000');
+    this.addMessage('Has muerto...', '#ff0000');
     this.spawnParticles(this.player.pos.x, this.player.pos.y, '#ff0000', 30);
     this.onStateChange?.();
   }
